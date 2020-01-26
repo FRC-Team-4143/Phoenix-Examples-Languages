@@ -1,44 +1,10 @@
-/**
- * Phoenix Software License Agreement
- *
- * Copyright (C) Cross The Road Electronics.  All rights
- * reserved.
- * 
- * Cross The Road Electronics (CTRE) licenses to you the right to 
- * use, publish, and distribute copies of CRF (Cross The Road) firmware files (*.crf) and 
- * Phoenix Software API Libraries ONLY when in use with CTR Electronics hardware products
- * as well as the FRC roboRIO when in use in FRC Competition.
- * 
- * THE SOFTWARE AND DOCUMENTATION ARE PROVIDED "AS IS" WITHOUT
- * WARRANTY OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT
- * LIMITATION, ANY WARRANTY OF MERCHANTABILITY, FITNESS FOR A
- * PARTICULAR PURPOSE, TITLE AND NON-INFRINGEMENT. IN NO EVENT SHALL
- * CROSS THE ROAD ELECTRONICS BE LIABLE FOR ANY INCIDENTAL, SPECIAL, 
- * INDIRECT OR CONSEQUENTIAL DAMAGES, LOST PROFITS OR LOST DATA, COST OF
- * PROCUREMENT OF SUBSTITUTE GOODS, TECHNOLOGY OR SERVICES, ANY CLAIMS
- * BY THIRD PARTIES (INCLUDING BUT NOT LIMITED TO ANY DEFENSE
- * THEREOF), ANY CLAIMS FOR INDEMNITY OR CONTRIBUTION, OR OTHER
- * SIMILAR COSTS, WHETHER ASSERTED ON THE BASIS OF CONTRACT, TORT
- * (INCLUDING NEGLIGENCE), BREACH OF WARRANTY, OR OTHERWISE
- */
-/**
- * Example demonstrating the remote sensor features of CTRE Products.
- * Use a Logitech gamepad in D-Input mode.
- * There are many example use-cases demonstrated here including...
- * - Using the SUM and DIFFERENCE Remote sensors features for robots that have a left and right encoder.
- * - Using the second auxiliary PID loop for maintaining robot heading (via Pigeon or right-minus-left encoder).
- * - Enhanced configuration of PID loops
- * - adding a constant feed forward to single-axis position/velocity/motion-magic.
- * - adding a constant feed forward to single and two-axis motion-profiles.
- *
- */
+
 #include <iostream>
 #include <string>
-
 #include "frc/WPILib.h"
 #include "ctre/Phoenix.h"
 #include "MotionProfileExample.h"
-//#include "Constants.h"
+#include "Constants.h"
 
 using namespace frc;
 
@@ -68,7 +34,9 @@ public:
 
 		kTotalCount,
 	};
-	ExampleType _selectedExample = ExampleType::kOne_Axis_PercentOutput;
+	//ExampleType _selectedExample = ExampleType::kOne_Axis_PercentOutput;
+	ExampleType _selectedExample = ExampleType::kTwo_Axis_Velocity;
+
 	ExampleType _appliedExample = ExampleType::kOne_Axis_PercentOutput;
 
 	/* Various button states from joystick class */
@@ -119,7 +87,7 @@ public:
 		/**
 		 * How to measure robot heading. 0 for Difference between left and right quad encoder. 1 for Pigeon IMU.
 		 */
-		const int kHeadingSensorChoice = 0;
+		const int kHeadingSensorChoice = 1;
 
 		/**
 		 * Empirically measure what the difference between encoders per 360'
@@ -132,7 +100,8 @@ public:
 		/**
 		 * This is a property of the Pigeon IMU, and should not be changed.
 		 */
-		const static int kPigeonUnitsPerRotation = 8192.0;
+		//const static int kPigeonUnitsPerRotation = 4096.0;
+		const static int kPigeonUnitsPerRotation = 360.0;
 
 
 		/**
@@ -161,8 +130,8 @@ public:
 
 		//                                         kP   kI   kD   kF              Iz    PeakOut
 		constexpr static Gains kGains_Distanc = { 0.1, 0.0,  0.0, 0.0,            100,  0.50 };
-		constexpr static Gains kGains_Turning = { 2.0, 0.0,  4.0, 0.0,            200,  1.00 };
-		constexpr static Gains kGains_Velocit = { 0.1, 0.0, 20.0, 1023.0/6800.0,  300,  0.50 }; /* measured 6800 velocity units at full motor output */
+		constexpr static Gains kGains_Turning = { 0.1, 0.0,  0.0, 0.0,            200,  .25 };
+		constexpr static Gains kGains_Velocit = { 0.2, 0.0, 0.0, 0.05,  300,  0.50 }; /* measured 6800 velocity units at full motor output */
 		constexpr static Gains kGains_MotProf = { 1.0, 0.0,  0.0, 1023.0/6800.0,  400,  1.00 }; /* measured 6800 velocity units at full motor output */
 
 		const static int kSlot_Distanc = SLOT_0;
@@ -170,15 +139,11 @@ public:
 		const static int kSlot_Velocit = SLOT_2;
 		const static int kSlot_MotProf = SLOT_3;
 
-	/***************************************************************************************************************************************************/
-	/***************************************************************************************************************************************************/
-	/***************************************************************************************************************************************************/
-	/***************************************************************************************************************************************************/
 	/* hardware objects */
-	TalonSRX * _talonLeft = new TalonSRX(6);
-	TalonSRX * _talonRght = new TalonSRX(2);
-	TalonSRX * _talonPigeon = new TalonSRX(5);
-	PigeonIMU * _imu = new PigeonIMU(_talonPigeon);
+	TalonFX * _talonLeft = new TalonFX(21);
+	TalonFX * _talonRght = new TalonFX(22);
+	CANCoder * _talonPigeon = new CANCoder(1);
+	//PigeonIMU * _imu = new PigeonIMU(_talonPigeon);
 	Joystick * _joy = new Joystick(0);
 
 	/** Motion profile example manager*/
@@ -199,15 +164,26 @@ public:
 		_talonRght->ConfigFactoryDefault();
 		_talonLeft->ConfigFactoryDefault();	
 		_talonPigeon->ConfigFactoryDefault();	
-		_imu->ConfigFactoryDefault();	
+		//_imu->ConfigFactoryDefault();	
 		/* Ensure robot starts in neutral mode */
 		_talonRght->Set(ControlMode::PercentOutput, 0);
 		_talonLeft->Set(ControlMode::PercentOutput, 0);
+ 
+		double MaxCurrent = 10.0;
+
+		SupplyCurrentLimitConfiguration supply (true,MaxCurrent,MaxCurrent,2);
+    	StatorCurrentLimitConfiguration stator (true,MaxCurrent,MaxCurrent,2);
+    	_talonRght->ConfigStatorCurrentLimit(stator);
+    	_talonRght->ConfigSupplyCurrentLimit(supply);
+		_talonLeft->ConfigStatorCurrentLimit(stator);
+    	_talonLeft->ConfigSupplyCurrentLimit(supply);
+
+
 
 		//------------ talons -----------------//
-		_talonLeft->SetInverted(false);
+		_talonLeft->SetInverted(true);
 		_talonLeft->SetSensorPhase(true);
-		_talonRght->SetInverted(true);
+		_talonRght->SetInverted(false); //Was True
 		_talonRght->SetSensorPhase(true);
 
 		//------------ setup filters -----------------//
@@ -222,8 +198,8 @@ public:
 												REMOTE_0,
 												kTimeoutMs);
 		/* Remote 1 will be a pigeon */
-		_talonRght->ConfigRemoteFeedbackFilter(	_talonPigeon->GetDeviceID(),
-												RemoteSensorSource::RemoteSensorSource_GadgeteerPigeon_Yaw,
+		_talonRght->ConfigRemoteFeedbackFilter(	_talonPigeon->GetDeviceNumber(),
+												RemoteSensorSource::RemoteSensorSource_CANCoder,
 												REMOTE_1,
 												kTimeoutMs);
 
@@ -273,7 +249,8 @@ public:
 		_talonRght->SetStatusFramePeriod(StatusFrame::Status_14_Turn_PIDF1_, 20, kTimeoutMs);
 		_talonRght->SetStatusFramePeriod(StatusFrame::Status_10_Targets_, 20, kTimeoutMs);
 		/* speed up the left since we are polling it's sensor */
-		_talonLeft->SetStatusFramePeriod(StatusFrame::Status_2_Feedback0_, 5, kTimeoutMs);
+		//_talonLeft->SetStatusFramePeriod(StatusFrame::Status_2_Feedback0_, 5, kTimeoutMs);
+		_talonLeft->SetStatusFramePeriod(StatusFrame::Status_2_Feedback0_, 20, kTimeoutMs);
 
 		_talonLeft->ConfigNeutralDeadband(kNeutralDeadband, kTimeoutMs);
 		_talonRght->ConfigNeutralDeadband(kNeutralDeadband, kTimeoutMs);
@@ -347,14 +324,15 @@ public:
 		 * true means talon's local output is PID0 - PID1, and other side Talon is PID0 + PID1
 		 */
 		_talonRght->ConfigAuxPIDPolarity(false, kTimeoutMs);
+		//_talonRght->ConfigAuxPIDPolarity(true, kTimeoutMs);
 
 		ZeroSensors();
 	}
 	void ZeroSensors() {
-		_talonLeft->GetSensorCollection().SetQuadraturePosition(0, kTimeoutMs);
-		_talonRght->GetSensorCollection().SetQuadraturePosition(0, kTimeoutMs);
-		_imu->SetYaw(0, kTimeoutMs);
-		_imu->SetAccumZAngle(0, kTimeoutMs);
+		_talonLeft->GetSensorCollection().SetIntegratedSensorPosition(0, kTimeoutMs);
+		_talonRght->GetSensorCollection().SetIntegratedSensorPosition(0, kTimeoutMs);
+		_talonPigeon->SetPosition(0, kTimeoutMs);
+		//_talonPigeon->SetAccumZAngle(0, kTimeoutMs);
 		printf("        [Sensors] All sensors are zeroed.\n");
 	}
 	void NeutralMotors(const char * reason) {
@@ -375,7 +353,7 @@ public:
 		/* grab the joystick inputs */
 		bool btns[kNumButtonsPlusOne];
 		double joyFwd = -1 * _joy->GetY(); /* positive stick => forward */
-		double joyTurn = +1 * _joy->GetTwist(); /* positive stick => right */
+		double joyTurn = +1 * _joy->GetRawAxis(4); /* positive stick => right */ //was Gettwist
 		double joyX = +1 * _joy->GetX();
 		int pov = _joy->GetPOV();
 		GetButtons(btns);
@@ -445,7 +423,7 @@ public:
 		CopyButtons(_btns, btns);
 
 		/* user is holding shoulder button, execute selected example */
-		if (_btns[5]) {
+		if (_btns[5] && false) {
 			/* button 5 is held down, jump to simple drive */
 			if (_appliedExample != kOne_Axis_PercentOutput) {
 				/* take note that this is the first loop of the new selection */
@@ -642,7 +620,7 @@ public:
 	void One_Axis_Velocity(bool bFirstCall, ButtonEvent bExecuteAction, double joyForward, double joyTurn) {
 
 		/* calculate targets from gamepad inputs */
-		double target_RPM = joyForward * 500; /* +- 500 RPM */
+		double target_RPM = joyForward * 50; /* +- 500 RPM */
 		double target_unitsPer100ms = target_RPM * kSensorUnitsPerRotation / 600.0;
 
 		if (bFirstCall) {
@@ -669,7 +647,7 @@ public:
 												double joyTurn) {
 
 		/* calculate targets from gamepad inputs */
-		double target_RPM = joyForward * 500; /* +- 500 RPM */
+		double target_RPM = joyForward * 50; /* +- 500 RPM */
 		double target_unitsPer100ms = target_RPM * kSensorUnitsPerRotation / 600.0;
 		double feedFwdTerm = joyTurn * 0.25; /* how much to add to the close loop output */
 
@@ -694,13 +672,18 @@ public:
 	}
 
 	void Two_Axis_Velocity(bool bFirstCall, ButtonEvent bExecuteAction, double joyForward, double joyTurn) {
-
+		frc::SmartDashboard::PutNumber("Encoder",_talonPigeon->GetPosition());
 		/* calculate targets from gamepad inputs */
-		double target_RPM = joyForward * 500; /* +- 500 RPM */
+		double target_RPM = joyForward * 1000; /* +- 500 RPM */
 		double target_unitsPer100ms = target_RPM * kSensorUnitsPerRotation / 600.0;
 
 		double heading_units = kTurnTravelUnitsPerRotation * joyTurn * -1.0; /* positive right stick => negative heading target (turn to right) */
 
+	    frc::SmartDashboard::PutNumber("Encoder abs pos",_talonPigeon->GetAbsolutePosition());
+		frc::SmartDashboard::PutNumber("Encoder pos",_talonPigeon->GetPosition());
+		frc::SmartDashboard::PutNumber("Vel target", target_unitsPer100ms);
+		frc::SmartDashboard::PutNumber("Aux target", heading_units);
+		
 		if (bFirstCall) {
 			printf("[07]Two_Axis_Velocity selected, this can be used to approach a heading while mainting velocity. ");
 			printf("Press Button 6 to set target. ");
@@ -718,6 +701,7 @@ public:
 			_talonRght->Set(ControlMode::Velocity, _target0, DemandType_AuxPID, _target1);
 			_talonLeft->Follow(*_talonRght, FollowerType::FollowerType_AuxOutput1);
 		} else if (bExecuteAction == ButtonEvent::ButtonOnToOff) {
+			_talonRght->Set(ControlMode::Velocity, 0, DemandType_AuxPID, 0);
 			//NeutralMotors("Button let go\n");
 		}
 	}
